@@ -6,5 +6,7 @@ irrigation_check:
   class: IrrigationCheck
 
   sequence_entity_id: binary_sensor.irrigation_unlimited_c2_s1
-  alert_notify_action: notify.str_notification_group
+  notify_ok_action: notify.persistent_notification
+  notify_alert_action: notify.str_notification_group
+
 ```

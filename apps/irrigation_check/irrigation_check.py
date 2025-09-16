@@ -24,20 +24,27 @@ class IrrigationCheck(Hass):
     # Flow rate tends to be at least 12 - 25 liters / minute.
     # Should always be >= 10 liters / minute
     self.min_expected_lpm: int = self.args.get('min_expected_lpm', 10)
-    # Notification action if water flow not detected
-    self.alert_notify_action: str | None = self.args.get('alert_notify_action')
+
+    # Notification action if water flow detected (optional)
+    self.notify_ok_action: str | None = self.args.get('notify_ok_action')
+    # Notification action if water flow not detected (optional)
+    self.notify_alert_action: str | None = self.args.get('notify_alert_action')
 
     # Listen for the irrigation system to be finished
-    self.listen_event(self.irrigation_complete, 'irrigation_unlimited_finish', )
+    self.listen_event(self.irrigation_complete, 'irrigation_unlimited_finish')
 
   def irrigation_complete(self, event_type: str, data: dict[str, t.Any],
       **kwargs: dict[str, t.Any]):
-    """_summary_
+    """Irrigation system finished event handler.
+    Check if the irrigation system ran for a minimum amount of time, and if so
+    schedule a check of the water usage after a delay which allows the entity
+    some time to push updates.
 
     Args:
-        event_type (str): _description_
-        data (dict[str, t.Any]): _description_
+        event_type (str): Event type (fired event)
+        data (dict[str, t.Any]): Event data
     """
+    # Ensure that this event is for the correct irrigation system
     if data['entity_id'] == self.sequence_entity_id:
       duration = int(int(data['run']['duration']) / 60)
       if duration < self.min_duration:
@@ -62,7 +69,7 @@ class IrrigationCheck(Hass):
 
     # duration of watering plus delay time
     # Technically the history shouldn't include the final 10 minutes, but it's
-    # better to include it then the last 10 minutes of real usage
+    # better to include it than not have the last 10 minutes of real usage
     duration = int(int(data['run']['duration']) / 60)
     history_mins = self.delay_minutes + duration
 
@@ -72,19 +79,26 @@ class IrrigationCheck(Hass):
 
     if usage_liters > duration * self.min_expected_lpm:
       # Expected amount of water
-      self.log(('Found expected usage of %s liters '
-                'over %s minutes of irrigation'),
-          usage_liters, duration)
+      msg = (f'Found expected usage of { usage_liters } liters '
+             f'over { duration } minutes of irrigation')
+      self.log(msg, usage_liters, duration)
+
+      if self.notify_ok_action:
+        self.call_service(
+            self.notify_ok_action.replace('.', '/'),
+            service_data={'title': 'Irrigation OK',
+                          'message': msg})
     else:
+      # Below expected amount of water
       msg = (f'Water usage did not match irrigation time - { duration } '
                f'minutes of irrigation but only { usage_liters } liters of '
                'usage')
 
       self.log('ALERT - %s', msg)
 
-      if self.alert_notify_action:
+      if self.notify_alert_action:
         self.call_service(
-            self.alert_notify_action.replace('.', '/'),
+            self.notify_alert_action.replace('.', '/'),
             service_data={'title': 'Irrigation Alert',
                           'message': msg})
 
@@ -104,8 +118,6 @@ class IrrigationCheck(Hass):
     start_time = datetime.now() - timedelta(minutes=history_minutes)
     history = self.get_history(entity_id, start_time=start_time)
 
-    # for state in history[0]:
-    #   print(state['state'], state['last_changed'])
     assert isinstance(history, list)
 
     start_val = float(history[0][0]['state'])
