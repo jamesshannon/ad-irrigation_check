@@ -13,6 +13,9 @@ class IrrigationCheck(Hass):
     """
     # Irrigation Unlimited (auto-generated) sequence ID
     self.sequence_entity_id: str = self.args['sequence_entity_id']
+
+    self.sprinkler_entity_id: str | None = self.args.get('sprinkler_entity_id')
+
     # Minimum irrigation duration to cross-check
     # Don't bother checking water usage for short watering times.
     # If it's rainy and Irrigation Controller only decides to water for 15
@@ -46,6 +49,12 @@ class IrrigationCheck(Hass):
     """
     # Ensure that this event is for the correct irrigation system
     if data['entity_id'] == self.sequence_entity_id:
+      # We got the event -- double-check that the valve is off
+      if (self.sprinkler_entity_id
+          and self.get_state(self.sprinkler_entity_id) == 'on'):
+        self.log('Irrigation sequence %s finished event, but valve is on',
+                 self.sprinkler_entity_id)
+
       duration = int(int(data['run']['duration']) / 60)
       if duration < self.min_duration:
         self.log('Irrigation only active for %s mintues -- no check', duration)
